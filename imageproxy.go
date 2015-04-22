@@ -26,6 +26,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"crypto/md5"
+	"encoding/base64"
 
 	"github.com/golang/glog"
 	"github.com/gregjones/httpcache"
@@ -43,12 +45,13 @@ type Proxy struct {
 	// Whitelist specifies a list of remote hosts that images can be
 	// proxied from.  An empty list means all hosts are allowed.
 	Whitelist []string
+	Secret string
 }
 
 // NewProxy constructs a new proxy.  The provided http RoundTripper will be
 // used to fetch remote URLs.  If nil is provided, http.DefaultTransport will
 // be used.
-func NewProxy(transport http.RoundTripper, cache Cache) *Proxy {
+func NewProxy(transport http.RoundTripper, cache Cache, secret string) *Proxy {
 	if transport == nil {
 		transport = http.DefaultTransport
 	}
@@ -66,13 +69,35 @@ func NewProxy(transport http.RoundTripper, cache Cache) *Proxy {
 	return &Proxy{
 		Client: client,
 		Cache:  cache,
+		Secret: secret,
 	}
+}
+
+// works similar to nginx's secure_link
+func (p *Proxy) getSignature(url string) string {
+	hasher := md5.New()
+	hasher.Write([]byte(p.Secret))
+	hasher.Write([]byte(url))
+	return base64.URLEncoding.EncodeToString(hasher.Sum(nil))
 }
 
 // ServeHTTP handles image requests.
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/favicon.ico" {
 		return // ignore favicon requests
+	}
+
+	if len(p.Secret) > 0 {
+		segments := strings.SplitN(r.URL.Path, "/", 3)
+		r.URL.Path = segments[0]+"/"+segments[2]
+		signature := segments[1]
+		glog.Error(segments[0] +" -- " + segments[1] +" -- " + segments[2] + " -- " + p.getSignature(segments[2]))
+		if signature != p.getSignature(segments[2]) {
+			msg := fmt.Sprintf("invalid signature")
+			glog.Error(msg)
+			http.Error(w, msg, http.StatusBadRequest)
+			return
+		}
 	}
 
 	req, err := NewRequest(r)

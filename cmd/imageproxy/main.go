@@ -42,6 +42,7 @@ var whitelist = flag.String("whitelist", "", "comma separated list of allowed re
 var cacheDir = flag.String("cacheDir", "", "directory to use for file cache")
 var cacheSize = flag.Uint64("cacheSize", 100, "maximum size of file cache (in MB)")
 var version = flag.Bool("version", false, "print version information")
+var secret = flag.String("secret", "", "secret for md5(secret+remaining_url) signing")
 
 func main() {
 	flag.Parse()
@@ -62,7 +63,7 @@ func main() {
 		c = httpcache.NewMemoryCache()
 	}
 
-	p := imageproxy.NewProxy(nil, c)
+	p := imageproxy.NewProxy(nil, c, *secret)
 	if *whitelist != "" {
 		p.Whitelist = strings.Split(*whitelist, ",")
 	}
