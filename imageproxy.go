@@ -28,7 +28,8 @@ import (
 	"time"
 	"crypto/md5"
 	"encoding/base64"
-
+	"crypto/cipher"
+	"golang.org/x/crypto/blowfish"
 	"github.com/golang/glog"
 	"github.com/gregjones/httpcache"
 )
@@ -45,13 +46,14 @@ type Proxy struct {
 	// Whitelist specifies a list of remote hosts that images can be
 	// proxied from.  An empty list means all hosts are allowed.
 	Whitelist []string
-	Secret string
+	SecretSign string
+	cipher *blowfish.Cipher 
 }
 
 // NewProxy constructs a new proxy.  The provided http RoundTripper will be
 // used to fetch remote URLs.  If nil is provided, http.DefaultTransport will
 // be used.
-func NewProxy(transport http.RoundTripper, cache Cache, secret string) *Proxy {
+func NewProxy(transport http.RoundTripper, cache Cache, secretSign string, secretKey string) *Proxy {
 	if transport == nil {
 		transport = http.DefaultTransport
 	}
@@ -60,25 +62,64 @@ func NewProxy(transport http.RoundTripper, cache Cache, secret string) *Proxy {
 	}
 
 	client := new(http.Client)
-	client.Transport = &httpcache.Transport{
+	client.Transport = &Transport{
 		Transport:           &TransformingTransport{transport, client},
 		Cache:               cache,
 		MarkCachedResponses: true,
 	}
 
+	var pcipher *blowfish.Cipher = nil
+	if len(secretKey)>0 {
+		tcipher, err := blowfish.NewCipher([]byte(secretKey))
+		pcipher = tcipher
+		if err != nil {
+			panic(err)
+		}
+	}
 	return &Proxy{
 		Client: client,
 		Cache:  cache,
-		Secret: secret,
+		SecretSign: secretSign,
+		cipher: pcipher,
 	}
 }
 
 // works similar to nginx's secure_link
 func (p *Proxy) getSignature(url string) string {
 	hasher := md5.New()
-	hasher.Write([]byte(p.Secret))
+	hasher.Write([]byte(p.SecretSign))
 	hasher.Write([]byte(url))
 	return base64.URLEncoding.EncodeToString(hasher.Sum(nil))
+}
+
+func crypt_pad(pt []byte) []byte {
+	// calculate modulus of plaintext to blowfish's cipher block size
+	// if result is not 0, then we need to pad
+	modulus := len(pt) % blowfish.BlockSize
+	if modulus != 0 {
+		// how many bytes do we need to pad to make pt to be a multiple of blowfish's block size?
+		padlen := blowfish.BlockSize - modulus
+		// let's add the required padding
+		for i := 0; i < padlen; i++ {
+			// add the pad, one at a time
+			pt = append(pt, 0)
+		}
+	}
+	// return the whole-multiple-of-blowfish.BlockSize-sized plaintext to the calling function
+	return pt
+}
+var crypt_iv []byte = []byte("nosecure")
+func decryptUrl(pcipher *blowfish.Cipher, url string) string {
+	decoded,err:=base64.URLEncoding.DecodeString(url)
+	if (err != nil) {
+		return ""
+	}
+	decoded = crypt_pad(decoded)
+
+	dcbc := cipher.NewCBCDecrypter(pcipher, crypt_iv)
+	dcbc.CryptBlocks(decoded, decoded)
+	decoded = bytes.Trim(decoded, "\x00")
+	return string(decoded)
 }
 
 // ServeHTTP handles image requests.
@@ -87,17 +128,27 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return // ignore favicon requests
 	}
 
-	if len(p.Secret) > 0 {
+	if len(p.SecretSign) > 0 {
 		segments := strings.SplitN(r.URL.Path, "/", 3)
 		r.URL.Path = segments[0]+"/"+segments[2]
 		signature := segments[1]
-		glog.Error(segments[0] +" -- " + segments[1] +" -- " + segments[2] + " -- " + p.getSignature(segments[2]))
 		if signature != p.getSignature(segments[2]) {
 			msg := fmt.Sprintf("invalid signature")
 			glog.Error(msg)
 			http.Error(w, msg, http.StatusBadRequest)
 			return
 		}
+	}
+
+	if p.cipher != nil {
+		segments := strings.SplitN(r.URL.Path, "/", 3)
+		str := decryptUrl(p.cipher, segments[2])
+		if len(str) == 0 {
+			msg := fmt.Sprintf("error while decrypting")
+			glog.Error(msg)
+			http.Error(w, msg, http.StatusBadRequest)
+		}
+		r.URL.Path = segments[0]+"/"+segments[1]+"/"+str
 	}
 
 	req, err := NewRequest(r)
@@ -229,7 +280,9 @@ func (t *TransformingTransport) RoundTrip(req *http.Request) (*http.Response, er
 
 	u := *req.URL
 	u.Fragment = ""
+	glog.Infof("getting from caching client: %v", u.String())
 	resp, err := t.CachingClient.Get(u.String())
+	glog.Infof("got from caching client: %v", u.String())
 	if err != nil {
 		return nil, err
 	}

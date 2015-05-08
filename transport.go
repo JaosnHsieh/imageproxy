@@ -113,8 +113,9 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 
 		if varyMatches(cachedResp, req) {
 			// Can only use cached value if the new request doesn't Vary significantly
-			freshness := getFreshness(cachedResp.Header, req.Header)
+			freshness,expiresDate := getFreshness(cachedResp.Header, req.Header)
 			if freshness == fresh {
+				cachedResp.Header.Set("Expires", expiresDate.UTC().Format(time.RFC1123))
 				return cachedResp, nil
 			}
 
@@ -219,16 +220,17 @@ var clock timer = &realClock{}
 //
 // Because this is only a private cache, 'public' and 'private' in cache-control aren't
 // signficant. Similarly, smax-age isn't used.
-func getFreshness(respHeaders, reqHeaders http.Header) (freshness int) {
+func getFreshness(respHeaders, reqHeaders http.Header) (freshness int, expdate time.Time) {
 	date, err := Date(respHeaders)
 	if err != nil {
-		return stale
+		return stale,date
 	}
 	currentAge := clock.since(date)
-	if currentAge > time.Duration(86400*14) * time.Second {
-		return stale
+	dur:=time.Duration(86400*14) * time.Second
+	if currentAge > dur {
+		return stale, date
 	}
-	return fresh
+	return fresh, date.Add(dur)
 }
 
 func getEndToEndHeaders(respHeaders http.Header) []string {

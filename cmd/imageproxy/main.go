@@ -42,7 +42,8 @@ var whitelist = flag.String("whitelist", "", "comma separated list of allowed re
 var cacheDir = flag.String("cacheDir", "", "directory to use for file cache")
 var cacheSize = flag.Uint64("cacheSize", 100, "maximum size of file cache (in MB)")
 var version = flag.Bool("version", false, "print version information")
-var secret = flag.String("secret", "", "secret for md5(secret+remaining_url) signing")
+var secretSign = flag.String("secret_sign", "", "secret for md5(secret+remaining_url) signing")
+var secretKey = flag.String("secret_key", "", "key for blowfish encryption of real url")
 
 func main() {
 	flag.Parse()
@@ -57,13 +58,16 @@ func main() {
 		d := diskv.New(diskv.Options{
 			BasePath:     *cacheDir,
 			CacheSizeMax: *cacheSize * 1024 * 1024,
+			Transform: func(s string) []string {
+				return []string{ s[0:1], s[2:3]}
+			},
 		})
 		c = diskcache.NewWithDiskv(d)
 	} else {
 		c = httpcache.NewMemoryCache()
 	}
 
-	p := imageproxy.NewProxy(nil, c, *secret)
+	p := imageproxy.NewProxy(nil, c, *secretSign, *secretKey)
 	if *whitelist != "" {
 		p.Whitelist = strings.Split(*whitelist, ",")
 	}
