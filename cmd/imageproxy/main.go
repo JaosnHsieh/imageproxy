@@ -59,7 +59,7 @@ func main() {
 			BasePath:     *cacheDir,
 			CacheSizeMax: *cacheSize * 1024 * 1024,
 			Transform: func(s string) []string {
-				return []string{ s[0:1], s[2:3]}
+				return []string{ s[0:2],s[2:4]}
 			},
 		})
 		c = diskcache.NewWithDiskv(d)
