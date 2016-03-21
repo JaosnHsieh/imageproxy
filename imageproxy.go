@@ -192,7 +192,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	copyHeader(w, resp, "Last-Modified")
 	copyHeader(w, resp, "Expires")
-	copyHeader(w, resp, "Etag")
+	//copyHeader(w, resp, "Etag")
 
 	if is304 := check304(r, resp); is304 {
 		w.WriteHeader(http.StatusNotModified)
@@ -236,10 +236,10 @@ func check304(req *http.Request, resp *http.Response) bool {
 	// TODO(willnorris): if-none-match header can be a comma separated list
 	// of multiple tags to be matched, or the special value "*" which
 	// matches all etags
-	etag := resp.Header.Get("Etag")
-	if etag != "" && etag == req.Header.Get("If-None-Match") {
-		return true
-	}
+	//etag := resp.Header.Get("Etag")
+	//if etag != "" && etag == req.Header.Get("If-None-Match") {
+	//	return true
+	//}
 
 	lastModified, err := time.Parse(time.RFC1123, resp.Header.Get("Last-Modified"))
 	if err != nil {

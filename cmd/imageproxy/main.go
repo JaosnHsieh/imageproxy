@@ -61,6 +61,7 @@ func main() {
 			Transform: func(s string) []string {
 				return []string{ s[0:2],s[2:4]}
 			},
+			Index: nil,
 		})
 		c = diskcache.NewWithDiskv(d)
 	} else {

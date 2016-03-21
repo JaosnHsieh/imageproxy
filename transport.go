@@ -121,10 +121,10 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 
 			if freshness == stale {
 				// Add validators if caller hasn't already done so
-				etag := cachedResp.Header.Get("etag")
-				if etag != "" && req.Header.Get("etag") == "" {
-					req.Header.Set("if-none-match", etag)
-				}
+				//etag := cachedResp.Header.Get("etag")
+				//if etag != "" && req.Header.Get("etag") == "" {
+				//	req.Header.Set("if-none-match", etag)
+				//}
 				lastModified := cachedResp.Header.Get("last-modified")
 				if lastModified != "" && req.Header.Get("last-modified") == "" {
 					req.Header.Set("if-modified-since", lastModified)
